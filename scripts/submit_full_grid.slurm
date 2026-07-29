@@ -20,20 +20,29 @@
 # (noiseless only, smaller kernel-sample cap than production) showed the
 # depth-8/10-qubit corner costing ~7x the depth-1/10-qubit corner just on the
 # noiseless side, before the noisy condition's cost is even added.
+
+
+#!/bin/bash
 #SBATCH --job-name=expr-train-grid
 #SBATCH --array=0-191%20
+
+#SBATCH --output=exp-tr.out
+#SBATCH --error=exp-tr.err
+
+#SBATCH --gres=gpu:1
+
+#SBATCH --time=2-00:00:00
+
+#SBATCH --ntasks=20
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=4G
-#SBATCH --time=03:00:00
-#SBATCH --output=logs/grid_%A_%a.out
-#SBATCH --error=logs/grid_%A_%a.err
+#SBATCH --mem=100G
+#SBATCH -A hthapliyal_cy-qubit_0001
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs results/shards
 
-# Adjust to your cluster's environment, e.g.:
-#   module load python/3.11
-#   source .venv/bin/activate
+module load conda
 
+conda activate exp_tr_base
 python -m qcore_expr_train.run_full --task-id "$SLURM_ARRAY_TASK_ID"
