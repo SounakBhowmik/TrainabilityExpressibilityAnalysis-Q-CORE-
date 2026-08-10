@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pqc-diagnostics"
+version = "0.1.0"
+description = "Expressibility, entangling capability, trainability, and kernel-usefulness diagnostics for parameterized quantum circuits."
+requires-python = ">=3.9"
+dependencies = [
+    "qiskit>=1.4,<2.0",
+    "qiskit-aer>=0.15",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "scikit-learn>=1.3",
+]
+
+[tool.setuptools.packages.find]
+include = ["pqc_diagnostics*"]

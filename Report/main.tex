@@ -1,0 +1,388 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{url}
+\usepackage{xcolor}
+
+\graphicspath{{./}{results/plots/}}
+
+% Include the repository figure when present and leave a labeled placeholder
+% when this manuscript is compiled separately from the results directory.
+\newcommand{\resultfigure}[2]{%
+  \IfFileExists{#1}{%
+    \includegraphics[width=\linewidth]{#1}%
+  }{%
+    \fbox{\parbox[c][0.22\textheight][c]{0.94\linewidth}{\centering
+      Figure placeholder\\[2mm]\texttt{results/plots/#1}\\[2mm]#2}}%
+  }%
+}
+
+\title{Expressibility--Trainability Tradeoffs in Noisy Parameterized
+Quantum Circuits: A Crossed Feature-Map and Ansatz Study}
+
+% Replace these placeholders before submission.
+\author{\IEEEauthorblockN{Sounak Bhowmik}
+\IEEEauthorblockA{Southern Methodist University, 
+Dallas\\
+sbhowmik@smu.edu}}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Selecting a quantum feature map, trainable ansatz, circuit depth, and
+entanglement topology jointly determines both the state-space coverage and
+the optimization difficulty of a quantum machine-learning model.  In this paper, we study
+this interaction with a crossed design comprising three feature maps, two
+ansatz families, three circuit widths, four depths, and three connectivity
+patterns. We calibrated the experiments in noisy and noiseless simulation, and ten random seeds.
+Expressibility is measured by the Kullback--Leibler divergence between
+sampled state fidelities and the Haar distribution; entangling capability by
+the Meyer--Wallach measure; and trainability by the variance of a
+parameter-shift gradient of a data-encoded, composed feature-map--ansatz
+circuit.  Across the available noiseless configurations, mean gradient
+variance at ten qubits decreases from 0.123 at one repetition to 0.0496 at
+eight repetitions.  The decrease is concentrated in the entangling
+\texttt{real\_amplitudes} ansatz: for linear ten-qubit circuits, its three
+feature-map combinations lose 92.5--99.3\% of gradient variance by depth
+eight, whereas the nonentangling \texttt{rotation\_only} ansatz remains
+substantially more trainable.  Hardware-calibrated noise produces an even
+sharper topology effect.  At ten qubits, the median retained gradient
+variance for linear circuits changes from 0.916 at depth one to 0.545 at
+depth eight, while most circular and fully connected circuits collapse
+toward zero after routing to the sparse device patch.  These results support
+joint, hardware-aware selection of encoding, ansatz, depth, and topology,
+but do not support a universal feature-map-independent saturation depth.
+\end{abstract}
+
+\begin{IEEEkeywords}
+quantum machine learning, parameterized quantum circuits, expressibility,
+trainability, barren plateaus, noise-aware compilation
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Parameterized quantum circuits are central to near-term variational
+algorithms, but their design presents a tension.  Greater state-space
+coverage can improve representational capacity, while sufficiently random
+or expressive circuits can concentrate objective values and suppress
+gradients~\cite{mcclean2018barren,holmes2022connecting}.  At the same time,
+near-term processors impose gate errors and sparse connectivity, making
+nominally compact all-to-all circuits costly after routing
+\cite{preskill2018nisq}.  Circuit selection must therefore consider
+expressibility, trainability, and hardware compatibility together.
+
+Quantum feature maps embed classical samples in Hilbert space and underlie
+both quantum-kernel and variational-classifier constructions
+\cite{havlicek2019supervised}.  Prior expressibility studies introduced
+fidelity-based and entanglement-based descriptors and showed that both can
+saturate with circuit depth~\cite{sim2019expressibility}.  The present study
+extends this circuit-level perspective in three practical directions.  It
+(i) crosses feature maps and ans\"atze instead of pairing them one-to-one,
+(ii) measures ansatz trainability after composing it with a feature map
+bound to a real data sample, and (iii) evaluates the same design under a
+fixed, hardware-calibrated noise model and qubit patch.
+
+The main contributions are as follows:
+\begin{itemize}
+  \item A factorial comparison of three encoding circuits and two
+  structurally distinct ans\"atze over width, depth, topology, and noise.
+  \item A reproducible measurement protocol linking feature-map
+  expressibility to the gradient variance of the composed classifier
+  circuit.
+  \item Evidence that depth-induced loss of trainability depends strongly on
+  ansatz structure, and that routing topology can dominate this loss under
+  calibrated noise.
+\end{itemize}
+
+\section{Metrics and Problem Formulation}
+
+\subsection{Expressibility}
+
+Following Sim \emph{et al.}~\cite{sim2019expressibility}, two independent
+parameter vectors are sampled for a feature map $U(\boldsymbol{\theta})$,
+and the fidelity $F=|\langle\psi(\boldsymbol{\theta})|
+\psi(\boldsymbol{\phi})\rangle|^2$ is recorded.  For a Hilbert-space
+dimension $N=2^n$, the Haar fidelity density is
+\begin{equation}
+  P_{\mathrm{Haar}}(F)=(N-1)(1-F)^{N-2}.
+\end{equation}
+Expressibility is the histogram estimate
+\begin{equation}
+  E_{\mathrm{KL}}=D_{\mathrm{KL}}
+  \left(P_{\mathrm{circuit}}\parallel P_{\mathrm{Haar}}\right).
+\end{equation}
+A smaller $E_{\mathrm{KL}}$ denotes a more Haar-like, and hence more
+expressible, circuit ensemble.
+
+\subsection{Entangling Capability}
+
+For each random parameter draw, the Meyer--Wallach global-entanglement
+measure~\cite{meyer2002global} is computed as
+\begin{equation}
+  Q=2\left(1-\frac{1}{n}\sum_{k=1}^{n}\mathrm{Tr}(\rho_k^2)\right),
+\end{equation}
+where $\rho_k$ is the one-qubit reduced state.  The reported capability is
+the sample mean of $Q$, ranging from zero for product states to one for
+maximally entangled single-qubit marginals.
+
+\subsection{Trainability}
+
+The trainability proxy is the variance, over random ansatz initializations,
+of one component of the gradient of the local observable $Z_0$.  The first
+trainable parameter is differentiated by the parameter-shift rule
+\cite{schuld2019evaluating}:
+\begin{equation}
+  g(\boldsymbol{\theta})=\frac{f(\boldsymbol{\theta}+\frac{\pi}{2}\mathbf{e}_1)
+  -f(\boldsymbol{\theta}-\frac{\pi}{2}\mathbf{e}_1)}{2},
+  \qquad T=\mathrm{Var}_{\boldsymbol{\theta}}[g].
+\end{equation}
+Larger $T$ indicates gradients that survive random initialization; values
+near zero indicate an effectively flat landscape.  Unlike the other two
+metrics, $T$ is evaluated on the feature map followed by the ansatz.  The
+feature-map parameters are bound to a training sample, leaving only the
+ansatz parameters free.
+
+For comparing noise conditions, retained trainability is
+\begin{equation}
+  R_T=\frac{T_{\mathrm{noisy}}}{T_{\mathrm{noiseless}}}.
+\end{equation}
+A value near one indicates little noise-induced loss; a value near zero
+indicates that noise has erased parameter sensitivity.
+
+\section{Experimental Methodology}
+
+\subsection{Data Preparation}
+
+The experiment uses the 569-example, 30-feature Breast Cancer Wisconsin
+(Diagnostic) binary-classification dataset~\cite{uciWDBC}.  A stratified
+80/20 split gives 455 training and 114 test examples.  The implementation
+standardizes the raw training features, fits principal-component analysis
+to the selected qubit count, standardizes the retained components again,
+and multiplies them by $\pi/2$ to obtain encoding angles.  Every transform
+is fit only on the training split.  Although a test set is prepared, the
+current experiment reports circuit descriptors rather than classifier test
+accuracy.
+
+\subsection{Crossed Circuit Design}
+
+The feature-map families are:
+\begin{itemize}
+  \item \texttt{local\_z}: repeated single-qubit $Z$ rotations without
+  entanglement;
+  \item \texttt{zz}: a diagonal, commuting $ZZ$ feature map; and
+  \item \texttt{cx\_ry}: data-dependent $R_y$ rotations followed by CX
+  entanglers.
+\end{itemize}
+The same data parameters are reused at every repetition.  Each feature map
+is crossed with (i) \texttt{rotation\_only}, containing repeated $R_y$
+layers and no entanglers, and (ii) \texttt{real\_amplitudes}, containing
+$R_y$ layers and CX entanglers.  The crossed design separates the encoding
+effect from the ansatz effect more clearly than fixed feature-map--ansatz
+pairing.
+
+The planned grid contains widths $n\in\{4,8,10\}$, depths
+$d\in\{1,2,4,8\}$, and linear, circular, and full entanglement patterns.
+The topology is immaterial for the entirely local
+\texttt{local\_z}+\texttt{rotation\_only} circuit, so that pair is evaluated
+only with the linear label.  This gives 192 planned circuit configurations.
+One result shard---\texttt{local\_z}+\texttt{real\_amplitudes}, 10 qubits,
+depth 8, full topology---is absent from the archived results.  The analysis
+therefore uses 191 complete configurations, each observed for ten seeds and
+two noise conditions, totaling 3,820 raw rows.
+
+\subsection{Simulation and Noise}
+
+Noiseless metrics use exact statevector simulation.  Per seed,
+expressibility, entangling capability, and gradient variance use 500, 200,
+and 200 Monte Carlo samples, respectively.  Noisy evaluation uses density
+matrices and reduced counts of 60, 30, and 30 samples to control runtime.
+Ten seeds both initialize the Monte Carlo sampling and select the first ten
+training examples cyclically; consequently, variation across seeds includes
+both random initialization and data-instance variation.
+
+The implementation uses Qiskit~\cite{javadiabhari2024qiskit} and a noise
+model derived from the 127-qubit \texttt{FakeSherbrooke} backend.  Every
+circuit is restricted to a nested prefix of physical qubits 0--9, which
+forms a connected chain in the selected heavy-hex patch.  Parameterized
+circuits are transpiled once with optimization level 3 to the
+\{\texttt{sx}, \texttt{rz}, \texttt{x}, \texttt{ecr}\} basis and then
+simulated with the backend-derived noise model.  This fixed patch avoids
+confounding circuit width with a change of device while exposing routing
+overhead when circular or full logical connectivity is embedded in sparse
+hardware.
+
+\subsection{Analysis Protocol}
+
+Each reported cell is the mean over ten seeds; plotted error bars are one
+sample standard deviation.  Depth trends are descriptive rather than
+inferential.  Rank correlations use the 12 linear, noiseless cells formed by
+three feature maps and four depths within each ansatz and width.  Missing
+configurations are not imputed.
+
+\section{Experimental Results}
+
+\subsection{Feature-Map Expressibility Is Family Specific}
+
+Fig.~\ref{fig:saturation} shows that increasing depth does not produce one
+universal expressibility curve.  At ten qubits with linear connectivity,
+\texttt{cx\_ry} improves from $E_{\mathrm{KL}}=0.536$ at depth one to
+$2.73\times10^{-3}$ at depth eight.  The \texttt{zz} family is already
+Haar-like relative to the other families and remains within 0.045--0.105.
+By contrast, repeated \texttt{local\_z} rotations do not expand the reachable
+product-state family; their estimated divergence increases from 0.364 to
+5.79 at depth two before decreasing to 2.81 at depth eight.  These results
+show family-dependent plateaus and nonmonotonic finite-sample behavior, not
+a common saturation depth.
+
+\begin{figure*}[t]
+  \centering
+  \resultfigure{poster_saturation.png}{Expressibility and gradient variance
+  versus depth at ten qubits with linear topology.}
+  \caption{Depth dependence in the noiseless, ten-qubit linear setting.
+  Lower KL divergence means greater expressibility; larger gradient variance
+  means better trainability.  Solid and dashed trainability curves denote
+  \texttt{rotation\_only} and \texttt{real\_amplitudes}, respectively.}
+  \label{fig:saturation}
+\end{figure*}
+
+\subsection{Ansatz Structure Controls Depth-Induced Gradient Loss}
+
+Table~\ref{tab:endpoints} isolates the ansatz effect at ten qubits with
+linear connectivity.  Every \texttt{real\_amplitudes} combination loses
+more than 92\% of its noiseless gradient variance between depths one and
+eight.  The strongest collapse occurs for \texttt{cx\_ry}, from 0.264 to
+$1.98\times10^{-3}$ (99.3\%).  The nonentangling
+\texttt{rotation\_only} ansatz is more resistant: its \texttt{cx\_ry}
+combination loses 64.0\%, while its \texttt{local\_z} and \texttt{zz}
+combinations finish above their depth-one values, albeit nonmonotonically.
+
+\begin{table}[t]
+  \caption{Noiseless Gradient-Variance Endpoints (10 Qubits, Linear)}
+  \label{tab:endpoints}
+  \centering
+  \small
+  \begin{tabular}{llrrr}
+    \toprule
+    Feature map & Ansatz & $T_{d=1}$ & $T_{d=8}$ & Change \\
+    \midrule
+    \texttt{cx\_ry} & real amp. & 0.2637 & 0.0020 & $-99.3\%$ \\
+    \texttt{local\_z} & real amp. & 0.1518 & 0.0113 & $-92.6\%$ \\
+    \texttt{zz} & real amp. & 0.0987 & 0.0072 & $-92.7\%$ \\
+    \texttt{cx\_ry} & rotation & 0.2870 & 0.1032 & $-64.0\%$ \\
+    \texttt{local\_z} & rotation & 0.2373 & 0.3275 & $+38.0\%$ \\
+    \texttt{zz} & rotation & 0.0988 & 0.1509 & $+52.7\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+After averaging over all available feature-map, ansatz, and topology cells,
+ten-qubit noiseless gradient variance decreases from 0.123 at depth one to
+0.0496 at depth eight, a 59.8\% reduction.  The corresponding reduction at
+four qubits is 36.7\% (0.139 to 0.0879), indicating a width--depth
+interaction.  In the linear setting, the descriptive Spearman association
+between $E_{\mathrm{KL}}$ and $T$ is positive, as expected when greater
+expressibility (smaller KL) accompanies smaller gradients.  Across widths
+4, 8, and 10, the correlation is 0.273--0.462 for
+\texttt{real\_amplitudes} and 0.860--0.895 for
+\texttt{rotation\_only}.  Fig.~\ref{fig:tradeoff} visualizes these
+trajectories; their differing shapes caution against reducing trainability
+to expressibility alone.
+
+\begin{figure*}[t]
+  \centering
+  \resultfigure{poster_tradeoff.png}{Noiseless gradient variance versus expressibility, faceted by ansatz and qubit count.}
+  \caption{Noiseless expressibility--trainability trajectories for linear
+  topology.  Rows are ans\"atze, columns are widths, marker shape identifies
+  the feature map, and marker size increases with depth.  Both axes are
+  logarithmic.}
+  \label{fig:tradeoff}
+\end{figure*}
+
+\subsection{Sparse Hardware Strongly Penalizes Dense Logical Topology}
+
+Fig.~\ref{fig:noise} reports $R_T$ at ten qubits.  For the six linear
+feature-map--ansatz combinations, the median retention is 0.916, 0.873,
+0.824, and 0.545 at depths 1, 2, 4, and 8, respectively.  At depth eight,
+the three \texttt{rotation\_only} linear circuits retain 0.593--0.930,
+whereas the three \texttt{real\_amplitudes} circuits retain 0.134--0.498.
+
+The circular and full logical topologies are qualitatively different after
+routing to the chain-like patch.  At ten qubits and depth eight, all three
+circular \texttt{real\_amplitudes} combinations have
+$R_T<6\times10^{-11}$; the available full-topology combinations are also
+effectively zero.  Even for \texttt{rotation\_only}, entanglers in the
+feature map can induce this routing penalty: depth-eight circular
+\texttt{cx\_ry} retains $7.91\times10^{-4}$ and circular \texttt{zz} is
+numerically indistinguishable from zero.  The result is therefore not simply
+``noise increases with depth.''  It is an interaction between the composed
+circuit's entanglers and the mismatch between logical and physical
+connectivity.
+
+\begin{figure*}[t]
+  \centering
+  \resultfigure{poster_noise_topology.png}{Retained gradient variance under
+  calibrated noise versus depth and topology at ten qubits.}
+  \caption{Retained trainability $R_T$ under the calibrated Sherbrooke noise
+  model.  Color and marker identify the feature map; line style identifies
+  logical topology.  The dotted horizontal reference is $R_T=1$.}
+  \label{fig:noise}
+\end{figure*}
+
+\subsection{Implications for Circuit Selection}
+
+The combined results favor a staged configuration policy.  First reject
+topologies that require extensive routing on the target coupling graph.
+Then compare feature-map expressibility within the remaining shallow
+circuits, and finally evaluate trainability on the actual composed
+feature-map--ansatz model.  Feature-map descriptors alone are insufficient:
+the same encoding can sit above a robust rotation-only ansatz or an
+entangling ansatz whose gradients collapse with depth.  Conversely, a
+nominally nonentangling ansatz does not eliminate noise sensitivity if its
+feature map introduces dense two-qubit interactions.
+
+\section{Limitations and Threats to Validity}
+
+The experiment is a simulation study on one dataset and one calibrated fake
+backend; it does not execute circuits on live hardware.  Backend
+calibrations represent a snapshot and results may change across devices or
+dates.  Only one local observable and the first ansatz parameter are used
+for the gradient statistic, so the metric does not characterize the full
+optimization landscape.  Ten seeds bind ten different training examples,
+confounding initialization variability with input variability; future work
+should cross data samples and initialization seeds independently.
+
+No end-to-end classifier is trained, so ``trainability'' here means gradient
+survival rather than achieved accuracy, convergence time, or generalization.
+The noisy Monte Carlo budget is smaller than the noiseless budget, which
+increases uncertainty in ratios near zero.  Exact density-matrix simulation
+also limits the study to ten qubits.  Finally, one of 192 scheduled
+configurations is missing and is excluded without imputation.  Conclusions
+about full-topology, ten-qubit, depth-eight behavior should therefore be
+read with that missing \texttt{local\_z}+\texttt{real\_amplitudes} cell in
+mind.
+
+\section{Conclusion}
+
+This crossed experiment shows that expressibility and trainability cannot be
+assigned to a feature map or ansatz in isolation.  Under noiseless
+simulation, increasing depth strongly suppresses gradients for the
+entangling \texttt{real\_amplitudes} ansatz, while a rotation-only ansatz can
+remain trainable even at depth eight.  Under a fixed calibrated noise model,
+logical topology becomes decisive: linear circuits retain useful parameter
+sensitivity, whereas routing circular and fully connected circuits onto a
+sparse patch often produces near-complete gradient collapse.  The practical
+conclusion is a hardware-aware one: connectivity-compatible shallow circuits
+should be screened before paying for full variational training, and the
+screen must evaluate the composed encoding--ansatz circuit rather than a
+single component.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

@@ -1,20 +1,17 @@
 """Plots the results DataFrame produced by results.py.
 
-Two independent categorical variables now describe a grid cell - which
-feature map, and which ansatz - crossed rather than paired 1:1 (see
-circuits.py). One consistent encoding is used everywhere in this file so a
-reader only has to learn it once:
+plot_tradeoff/plot_metric_vs_depth (the generic, reusable plotting
+functions) now live in pqc_diagnostics.visualize.plots; this module keeps
+only the poster figures specific to this paper, plus this paper's exact
+visual encoding (registered by importing qcore_expr_train.styles below).
 
-- color        = ansatz_family (2 values) - the thing held fixed while the
-                 feature map varies, so a single color's marker spread shows
-                 the feature map's effect on that ansatz directly.
-- marker shape = feature_map_family (3 values).
-- linestyle / marker fill = noise_condition, where relevant.
+- color        = ansatz_family - the thing held fixed while the feature map
+                 varies, so a single color's marker spread shows the feature
+                 map's effect on that ansatz directly.
+- marker shape = feature_map_family.
+- linestyle    = noise_condition or topology, where relevant.
 - topology is faceted where the plot's story is about topology, and fixed to
-  "linear" (documented in the title) everywhere else - three categorical
-  axes plus qubit-count faceting in one static plot stops being legible.
-
-Error bars come from the mean/std columns summarize() computes across seeds.
+  "linear" (documented in the title) everywhere else.
 """
 
 from __future__ import annotations
@@ -24,122 +21,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# Fixed categorical order - do not reorder or cycle.
-_ANSATZ_COLORS = {"rotation_only": "#2a78d6", "real_amplitudes": "#1baf7a"}
-_ANSATZ_LINESTYLES = {"rotation_only": "-", "real_amplitudes": "--"}
-_FEATURE_MAP_MARKERS = {"zz": "o", "local_z": "^", "cx_ry": "D"}
-_NOISE_LINESTYLES = {"noiseless": "-", "noisy": "--"}
+from pqc_diagnostics.visualize.plots import _style_axes, plot_metric_vs_depth, plot_tradeoff  # noqa: F401
 
-
-def _style_axes(ax: plt.Axes) -> None:
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.grid(True, linewidth=0.5, alpha=0.3)
-
-
-def _legend(ax: plt.Axes, ansatze: list[str], feature_maps: list[str], noise_conditions: list[str] = ()) -> None:
-    handles = [
-        plt.Line2D([], [], color=_ANSATZ_COLORS[a], marker="o", linestyle="", markersize=8, label=a)
-        for a in ansatze
-    ] + [
-        plt.Line2D([], [], color="#52514e", marker=_FEATURE_MAP_MARKERS[f], linestyle="", markersize=8, label=f)
-        for f in feature_maps
-    ]
-    if noise_conditions:
-        handles += [
-            plt.Line2D([], [], color="#52514e", linestyle=_NOISE_LINESTYLES[c], linewidth=2, label=c)
-            for c in noise_conditions
-        ]
-    ax.legend(handles=handles, frameon=False, fontsize=8, loc="best")
-
-
-def _facet_by_qubits(summary: pd.DataFrame) -> tuple[plt.Figure, dict[int, plt.Axes]]:
-    qubit_counts = sorted(summary["num_qubits"].unique())
-    fig, axes = plt.subplots(1, len(qubit_counts), figsize=(5 * len(qubit_counts), 4.5), sharey=True)
-    axes = [axes] if len(qubit_counts) == 1 else list(axes)
-    return fig, dict(zip(qubit_counts, axes))
-
-
-def plot_tradeoff(summary: pd.DataFrame, out_path: str | Path, topology: str = "linear") -> None:
-    """Gradient variance (trainability) vs expressibility KL divergence -
-    the core expressibility/trainability tradeoff claim. Because color is the
-    ansatz and marker is the feature map, reading along one color shows
-    exactly how trainability changes as the feature map (and its
-    expressibility) varies, with the ansatz held fixed - the isolated effect,
-    not a confounded family-level association.
-    """
-    data = summary[summary["topology"] == topology]
-    fig, axes_by_qubits = _facet_by_qubits(data)
-    ansatze = sorted(data["ansatz_family"].unique())
-    feature_maps = sorted(data["feature_map_family"].unique())
-
-    for num_qubits, ax in axes_by_qubits.items():
-        cell = data[data["num_qubits"] == num_qubits]
-        for _, row in cell.iterrows():
-            ax.errorbar(
-                row["expressibility_kl_mean"],
-                row["gradient_variance_mean"],
-                xerr=row["expressibility_kl_std"],
-                yerr=row["gradient_variance_std"],
-                color=_ANSATZ_COLORS[row["ansatz_family"]],
-                marker=_FEATURE_MAP_MARKERS[row["feature_map_family"]],
-                markersize=8,
-                linewidth=1.5,
-                capsize=3,
-            )
-        ax.set_yscale("log")
-        ax.set_title(f"{num_qubits} qubits")
-        ax.set_xlabel("Expressibility (KL to Haar) →")
-        _style_axes(ax)
-
-    axes_by_qubits[min(axes_by_qubits)].set_ylabel("Gradient variance (trainability) →")
-    _legend(list(axes_by_qubits.values())[-1], ansatze, feature_maps)
-    fig.suptitle(f"Expressibility vs. trainability ({topology} topology)")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-
-
-def plot_metric_vs_depth(summary: pd.DataFrame, metric: str, out_path: str | Path, topology: str = "linear") -> None:
-    """Line plot of `metric` (e.g. "expressibility_kl" or "gradient_variance")
-    against circuit depth, one line per (ansatz, feature map), faceted by
-    qubit count - shows the saturation point as depth increases. Topology is
-    fixed (not faceted) to keep 4 feature maps x 2 ansatze legible on one
-    panel."""
-    data = summary[summary["topology"] == topology]
-    fig, axes_by_qubits = _facet_by_qubits(data)
-    ansatze = sorted(data["ansatz_family"].unique())
-    feature_maps = sorted(data["feature_map_family"].unique())
-
-    for num_qubits, ax in axes_by_qubits.items():
-        cell = data[data["num_qubits"] == num_qubits]
-        for ansatz in ansatze:
-            for feature_map in feature_maps:
-                line = cell[
-                    (cell["ansatz_family"] == ansatz) & (cell["feature_map_family"] == feature_map)
-                ].sort_values("depth")
-                if line.empty:
-                    continue
-                ax.errorbar(
-                    line["depth"],
-                    line[f"{metric}_mean"],
-                    yerr=line[f"{metric}_std"],
-                    color=_ANSATZ_COLORS[ansatz],
-                    marker=_FEATURE_MAP_MARKERS[feature_map],
-                    markersize=8,
-                    linewidth=2,
-                    capsize=3,
-                )
-        ax.set_title(f"{num_qubits} qubits")
-        ax.set_xlabel("Depth (reps)")
-        _style_axes(ax)
-
-    axes_by_qubits[min(axes_by_qubits)].set_ylabel(metric.replace("_", " "))
-    _legend(list(axes_by_qubits.values())[-1], ansatze, feature_maps)
-    fig.suptitle(f"{metric.replace('_', ' ')} vs. depth ({topology} topology)")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
+# Import side effect: registers this paper's exact colors/markers/linestyles
+# into pqc_diagnostics's global StyleRegistry before any plotting happens.
+from qcore_expr_train.styles import STYLES
 
 
 def plot_all(summary: pd.DataFrame, out_dir: str | Path) -> None:
@@ -154,8 +40,9 @@ def plot_all(summary: pd.DataFrame, out_dir: str | Path) -> None:
 # (kernel usefulness is deprioritized for now - the focus is the
 # expressibility/trainability tradeoff, not the kernel-discriminability claim)
 #
-# All four read a `summary` DataFrame that includes a "noise_condition" column
-# ("noiseless"/"noisy"), unlike the pilot's noiseless-only summaries above.
+# All three read a `summary` DataFrame that includes a "noise_condition"
+# column ("noiseless"/"noisy"), unlike the pilot's noiseless-only summaries
+# used by plot_all above.
 
 
 def poster_tradeoff(summary: pd.DataFrame, out_path: str | Path, topology: str = "linear") -> None:
@@ -181,21 +68,16 @@ def poster_saturation(summary: pd.DataFrame, out_path: str | Path, qubits: int |
     data = data[data["num_qubits"] == qubits]
     feature_maps = sorted(data["feature_map_family"].unique())
     ansatze = sorted(data["ansatz_family"].unique())
-    # Feature maps don't have a dedicated color palette elsewhere in this
-    # file (color is reserved for ansatz everywhere else) - assign one here,
-    # scoped to this plot only, reusing the same fixed hue order as
-    # _ANSATZ_COLORS's slots so it stays consistent with the palette's rule
-    # of a fixed categorical order.
-    feature_map_colors = dict(zip(feature_maps, ["#2a78d6", "#1baf7a", "#eda100"]))
 
     fig, (ax_expr, ax_train) = plt.subplots(1, 2, figsize=(10, 4.5))
     for feature_map in feature_maps:
+        feature_map_color = STYLES.get("feature_map_family", feature_map).color
         expr_line = data[data["feature_map_family"] == feature_map].drop_duplicates("depth").sort_values("depth")
         ax_expr.errorbar(
             expr_line["depth"],
             expr_line["expressibility_kl_mean"],
             yerr=expr_line["expressibility_kl_std"],
-            color=feature_map_colors[feature_map],
+            color=feature_map_color,
             marker="o",
             markersize=8,
             linewidth=2,
@@ -212,8 +94,8 @@ def poster_saturation(summary: pd.DataFrame, out_path: str | Path, qubits: int |
                 train_line["depth"],
                 train_line["gradient_variance_mean"],
                 yerr=train_line["gradient_variance_std"],
-                color=feature_map_colors[feature_map],
-                linestyle=_ANSATZ_LINESTYLES[ansatz],
+                color=feature_map_color,
+                linestyle=STYLES.get("ansatz_family", ansatz).linestyle,
                 marker="o",
                 markersize=7,
                 linewidth=2,
@@ -225,9 +107,14 @@ def poster_saturation(summary: pd.DataFrame, out_path: str | Path, qubits: int |
     ax_expr.legend(frameon=False, fontsize=8, loc="best")
     ax_train.set_title("Trainability vs. depth")
     ax_train.set_ylabel("Gradient variance")
-    train_handles = [plt.Line2D([], [], color=feature_map_colors[f], marker="o", markersize=8, label=f) for f in feature_maps]
+    train_handles = [
+        plt.Line2D([], [], color=STYLES.get("feature_map_family", f).color, marker="o", markersize=8, label=f)
+        for f in feature_maps
+    ]
     train_handles += [
-        plt.Line2D([], [], color="#52514e", linestyle=_ANSATZ_LINESTYLES[a], linewidth=2, label=a)
+        plt.Line2D(
+            [], [], color="#52514e", linestyle=STYLES.get("ansatz_family", a).linestyle, linewidth=2, label=a
+        )
         for a in ansatze
     ]
     ax_train.legend(handles=train_handles, frameon=False, fontsize=7, loc="best")
@@ -242,50 +129,83 @@ def poster_saturation(summary: pd.DataFrame, out_path: str | Path, qubits: int |
 
 
 def poster_noise_topology(summary: pd.DataFrame, out_path: str | Path, qubits: int | None = None) -> None:
-    """Plot 3: trainability vs. depth, noiseless (solid) vs. noisy (dashed),
-    faceted by topology instead of qubit count. Color = ansatz, marker =
-    feature map - carries the "noise pulls the ceiling in, and it's
-    topology-dependent" claim, now also showing whether that effect depends
-    on which ansatz is attached to the encoding."""
+    """Plot 3: retained trainability fraction (noisy / noiseless gradient
+    variance) vs. depth, faceted by ansatz - one line per (feature map,
+    topology) pair on the SAME axes, so all 3 topologies are directly
+    comparable in one panel instead of eyeballing 3 side-by-side facets.
+    A ratio near 1 means noise barely touched trainability; near 0 means
+    it's been destroyed.
+
+    This replaced an earlier version plotting raw noisy gradient variance on
+    a log scale. Once a circuit's noisy density matrix fully decoheres
+    (verified directly on this grid: full-topology circuits at depth 8 need
+    ~2600 two-qubit gates after routing onto the fixed noise patch, and their
+    density matrix comes out with purity ~0.000977 - == 1/2**10, maximally
+    mixed, to 4 significant figures), every expectation value collapses to
+    ~0 regardless of parameters, so the raw "gradient variance" measured
+    there is pure floating-point noise around zero, not a real quantity.
+    Plotting that raw on a log scale turned it into a meaningless multi-
+    decade zigzag. The ratio form doesn't have that problem: a fully
+    decohered cell just reads as ratio -> 0 on an ordinary linear scale, no
+    floor/clipping hack required.
+    """
     qubits = qubits or summary["num_qubits"].max()
     data = summary[summary["num_qubits"] == qubits]
-    topologies = [t for t in ["linear", "circular", "full"] if t in data["topology"].unique()]
+    index_cols = ["feature_map_family", "ansatz_family", "depth", "topology"]
+    noiseless = data[data["noise_condition"] == "noiseless"][index_cols + ["gradient_variance_mean"]]
+    noisy = data[data["noise_condition"] == "noisy"][index_cols + ["gradient_variance_mean"]]
+    merged = noiseless.merge(noisy, on=index_cols, suffixes=("_noiseless", "_noisy"))
+    # Guard a near-zero denominator rather than plot a spurious ratio spike -
+    # not observed in this grid (noiseless values stay well clear of zero),
+    # but cheap insurance against a divide-by-near-zero artifact.
+    merged = merged[merged["gradient_variance_mean_noiseless"] > 1e-9].copy()
+    merged["retained_fraction"] = merged["gradient_variance_mean_noisy"] / merged["gradient_variance_mean_noiseless"]
+
     ansatze = sorted(data["ansatz_family"].unique())
     feature_maps = sorted(data["feature_map_family"].unique())
+    topologies = [t for t in ["linear", "circular", "full"] if t in data["topology"].unique()]
 
-    fig, axes = plt.subplots(1, len(topologies), figsize=(5 * len(topologies), 4.5), sharey=True)
-    axes = [axes] if len(topologies) == 1 else list(axes)
+    fig, axes = plt.subplots(1, len(ansatze), figsize=(6 * len(ansatze), 4.5), sharey=True)
+    axes = [axes] if len(ansatze) == 1 else list(axes)
 
-    for topology, ax in zip(topologies, axes):
-        cell = data[data["topology"] == topology]
-        for ansatz in ansatze:
-            for feature_map in feature_maps:
-                for condition in ["noiseless", "noisy"]:
-                    line = cell[
-                        (cell["ansatz_family"] == ansatz)
-                        & (cell["feature_map_family"] == feature_map)
-                        & (cell["noise_condition"] == condition)
-                    ].sort_values("depth")
-                    if line.empty:
-                        continue
-                    ax.errorbar(
-                        line["depth"],
-                        line["gradient_variance_mean"],
-                        yerr=line["gradient_variance_std"],
-                        color=_ANSATZ_COLORS[ansatz],
-                        linestyle=_NOISE_LINESTYLES[condition],
-                        marker=_FEATURE_MAP_MARKERS[feature_map],
-                        markersize=7,
-                        linewidth=2,
-                        capsize=3,
-                    )
-        ax.set_yscale("log")
-        ax.set_title(topology)
+    for ansatz, ax in zip(ansatze, axes):
+        cell = merged[merged["ansatz_family"] == ansatz]
+        for feature_map in feature_maps:
+            feature_map_color = STYLES.get("feature_map_family", feature_map).color
+            feature_map_marker = STYLES.get("feature_map_family", feature_map).marker
+            for topology in topologies:
+                line = cell[
+                    (cell["feature_map_family"] == feature_map) & (cell["topology"] == topology)
+                ].sort_values("depth")
+                if line.empty:
+                    continue
+                ax.plot(
+                    line["depth"],
+                    line["retained_fraction"],
+                    color=feature_map_color,
+                    linestyle=STYLES.get("topology", topology).linestyle,
+                    marker=feature_map_marker,
+                    markersize=7,
+                    linewidth=2,
+                )
+        ax.axhline(1.0, color="#999999", linewidth=1, linestyle=":", zorder=0)
+        ax.set_ylim(-0.05, 1.3)
+        ax.set_title(ansatz)
         ax.set_xlabel("Depth (reps)")
         _style_axes(ax)
 
-    axes[0].set_ylabel("Gradient variance (trainability) →")
-    _legend(axes[-1], ansatze, feature_maps, noise_conditions=["noiseless", "noisy"])
+    axes[0].set_ylabel("Retained trainability (noisy / noiseless gradient variance) →")
+    handles = [
+        plt.Line2D(
+            [], [], color=STYLES.get("feature_map_family", f).color,
+            marker=STYLES.get("feature_map_family", f).marker, markersize=8, label=f,
+        )
+        for f in feature_maps
+    ] + [
+        plt.Line2D([], [], color="#52514e", linestyle=STYLES.get("topology", t).linestyle, linewidth=2, label=t)
+        for t in topologies
+    ]
+    axes[-1].legend(handles=handles, frameon=False, fontsize=8, loc="best")
     fig.suptitle(f"Noise pulls the trainability ceiling in, by topology ({qubits} qubits)")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
